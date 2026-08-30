@@ -1,5 +1,5 @@
 /* global process */
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 
 export const config = {
   maxDuration: 300,
@@ -10,9 +10,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'GEMINI_API_KEY is not set in Vercel Environment Variables.' });
+    return res.status(500).json({ error: 'OPENAI_API_KEY is not set in environment variables.' });
   }
 
   const messages = req.body?.messages;
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
   });
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
+    const openai = new OpenAI({ apiKey });
     
     let systemPrompt = `너는 초등학교 6학년을 가르치는 친절하고 상냥한 인공지능 학습 튜터야.
  
@@ -81,52 +81,49 @@ export default async function handler(req, res) {
       systemPrompt += `\n\n[현재 학생 화면(샌드박스 프리뷰)에 적용되어 있는 최신 코드]\n\`\`\`html\n${htmlCode.trim()}\n\`\`\`\n학생이 수정을 요구하거나 코드를 다시 작성해달라고 하면, 반드시 위 코드를 바탕으로 수정을 진행하고 수정본 전체 코드를 \`\`\`html ... \`\`\` 블록으로 작성해줘.`;
     }
 
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash",
-      systemInstruction: systemPrompt,
-      generationConfig: {
-        maxOutputTokens: 65536,
-      }
-    });
-
-    // Remove the initial AI welcome message to ensure history starts with 'user'
-    let historyMessages = messages.slice(0, -1);
-    if (historyMessages.length > 0 && historyMessages[0].id === 1) {
-      historyMessages = historyMessages.slice(1);
-    }
-
-    // Helper function to build Gemini parts (text + inline image data)
-    const buildParts = (msg) => {
-      const parts = [{ text: msg.fullText || msg.text || '' }];
+    // OpenAI Message formatting helper
+    const formatMessageContent = (msg) => {
+      const textPart = msg.fullText || msg.text || '';
       if (msg.image && msg.image.data && msg.image.mimeType) {
-        parts.push({
-          inlineData: {
-            mimeType: msg.image.mimeType,
-            data: msg.image.data
-          }
-        });
+        return [
+          { type: 'text', text: textPart },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:${msg.image.mimeType};base64,${msg.image.data}`,
+            },
+          },
+        ];
       }
-      return parts;
+      return textPart;
     };
 
-    // Build the chat history for Gemini
-    const history = historyMessages.map(msg => ({
-      role: msg.sender === 'user' ? 'user' : 'model',
-      parts: buildParts(msg)
-    }));
+    // Remove the initial AI welcome message (id === 1) if present
+    let filteredMessages = [...messages];
+    if (filteredMessages.length > 0 && filteredMessages[0].id === 1) {
+      filteredMessages = filteredMessages.slice(1);
+    }
 
-    const latestMsgObj = messages[messages.length - 1];
-    const latestParts = buildParts(latestMsgObj);
+    const openAiMessages = [
+      { role: 'system', content: systemPrompt },
+      ...filteredMessages.map(msg => ({
+        role: msg.sender === 'user' ? 'user' : 'assistant',
+        content: formatMessageContent(msg),
+      })),
+    ];
 
-    const chat = model.startChat({
-      history: history,
+    const stream = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: openAiMessages,
+      stream: true,
+      max_tokens: 16384,
     });
 
-    const result = await chat.sendMessageStream(latestParts);
-    
-    for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      res.write(chunkText);
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content || '';
+      if (content) {
+        res.write(content);
+      }
     }
     res.end();
   } catch (e) {
