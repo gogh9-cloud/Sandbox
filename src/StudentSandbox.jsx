@@ -1032,7 +1032,7 @@ function StudentSandbox() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSend()}
                 onPaste={handlePaste}
-                placeholder="학습/수학 질문을 쓰거나, 스크린샷을 붙여넣어(Ctrl+V) 질문해 보세요!"
+                placeholder=""
                 disabled={isLoading}
               />
               <button 
