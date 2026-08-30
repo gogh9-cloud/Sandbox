@@ -496,45 +496,55 @@ function StudentSandbox() {
   };
 
   const handleRenameSave = (sessionId) => {
-    if (editTitleValue.trim()) {
+    if (!editingSessionId) return;
+    const trimmedTitle = editTitleValue.trim();
+    setEditingSessionId(null);
+    setEditTitleValue('');
+
+    if (trimmedTitle) {
       setSessions(prev => {
         let updatedSession = null;
         const updated = prev.map(s => {
           if (s.id === sessionId) {
-            updatedSession = { ...s, title: editTitleValue.trim() };
+            updatedSession = { ...s, title: trimmedTitle };
             return updatedSession;
           }
           return s;
         });
         
         if (isLoggedIn && userProfile?.email) {
-          localStorage.setItem(`sandbox_sessions_${userProfile.email}`, JSON.stringify(updated));
-          if (updatedSession) {
-             supabase.from('student_sessions').upsert({
-               session_id: updatedSession.id,
-               student_email: userProfile.email,
-               student_name: userProfile.name,
-               title: updatedSession.title,
-               messages: [
-                 ...updatedSession.messages,
-                 {
-                   id: 'metadata',
-                   sender: 'metadata',
-                   isBanned: isBanned,
-                   violationCount: violationCount,
-                   banmalCount: banmalCount
-                 }
-               ],
-               html_code: updatedSession.htmlCode,
-               updated_at: new Date().toISOString()
-             }, { onConflict: 'student_email, session_id' }).catch(console.error);
+          try {
+            localStorage.setItem(`sandbox_sessions_${userProfile.email}`, JSON.stringify(updated));
+            if (updatedSession) {
+              const sessionMsgs = Array.isArray(updatedSession.messages) ? updatedSession.messages : [];
+              supabase.from('student_sessions').upsert({
+                session_id: updatedSession.id,
+                student_email: userProfile.email,
+                student_name: userProfile.name,
+                title: updatedSession.title,
+                messages: [
+                  ...sessionMsgs,
+                  {
+                    id: 'metadata',
+                    sender: 'metadata',
+                    isBanned: isBanned,
+                    violationCount: violationCount,
+                    banmalCount: banmalCount
+                  }
+                ],
+                html_code: updatedSession.htmlCode || '',
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'student_email, session_id' }).then(({ error }) => {
+                if (error) console.error("Supabase upsert error:", error);
+              }).catch(console.error);
+            }
+          } catch (err) {
+            console.error("Rename save error:", err);
           }
         }
         return updated;
       });
     }
-    setEditingSessionId(null);
-    setEditTitleValue('');
   };
 
   const handleRenameCancel = () => {
