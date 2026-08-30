@@ -1,4 +1,5 @@
 /* global process */
+// Trigger Vercel Auto Deployment - OpenAI API
 import OpenAI from "openai";
 
 export const config = {
