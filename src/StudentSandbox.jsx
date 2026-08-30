@@ -8,14 +8,8 @@ import './App.css';
 
 function StudentSandbox() {
   const navigate = useNavigate();
-  const defaultMessages = [
-    {
-      id: 1,
-      sender: 'ai',
-      text: '안녕하세요! 궁금한 점이 있으면 편하게 물어보세요! 공부 질문(수학, 과학, 국어 등)이나 코딩도 모두 도와드릴 수 있어요. 궁금한 이미지나 문제 스크린샷을 붙여넣기(Ctrl+V) 하거나 첨부해 보셔도 좋아요! 😊'
-    }
-  ];
-  const defaultHtml = '<div style="text-align: center; padding: 2rem; font-family: sans-serif; color: #333;">\n  <h1>안녕하세요! 여기는 프리뷰 화면이에요!</h1>\n  <p>왼쪽 대화창에서 학습 질문이나 코딩을 시작해 보세요.</p>\n</div>';
+  const defaultMessages = [];
+  const defaultHtml = '';
 
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
