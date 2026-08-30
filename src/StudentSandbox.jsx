@@ -334,7 +334,7 @@ function StudentSandbox() {
             return;
           }
 
-          if (data) {
+          if (data && data.length > 0) {
             const activeDbIds = new Set(data.map(row => row.session_id));
             let hasChanges = false;
             
