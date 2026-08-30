@@ -660,11 +660,31 @@ function StudentSandbox() {
             detectedBanmalCount = 2;
           }
 
-          const displayText = aiText
+          const formatMathText = (str) => {
+            if (!str || typeof str !== 'string') return str;
+            return str
+              .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1/$2')
+              .replace(/\\times/g, '×')
+              .replace(/\\div/g, '÷')
+              .replace(/\\cdot/g, '·')
+              .replace(/\\le/g, '≤')
+              .replace(/\\ge/g, '≥')
+              .replace(/\\neq/g, '≠')
+              .replace(/\\pm/g, '±')
+              .replace(/\\\(/g, '')
+              .replace(/\\\)/g, '')
+              .replace(/\\\[/g, '')
+              .replace(/\\\]/g, '')
+              .replace(/\\/g, '');
+          };
+
+          const rawDisplayText = aiText
             .replace(/\[VIOLATION:\s*WARNING\]/g, '')
             .replace(/\[VIOLATION:\s*BAN\]/g, '')
             .replace(/\[BANMAL_DETECTED:\s*\d+\]/g, '')
             .trim();
+
+          const displayText = formatMathText(rawDisplayText);
 
           setMessages(prev => prev.map(msg => 
             msg.id === aiMessageId ? { ...msg, text: displayText || '타이핑 중...' } : msg
@@ -696,7 +716,7 @@ function StudentSandbox() {
         setHtmlCode(match[1].trim());
         setIsPreviewOpen(true);
         // Remove the code block from the text shown in the chat bubble
-        let displayText = rawAiText.replace(match[0], '').trim();
+        let displayText = formatMathText(rawAiText.replace(match[0], '').trim());
         if (!displayText) {
           displayText = '오른쪽 프리뷰 화면에 요청하신 코드를 만들어 두었어요! 확인해 보세요.';
         }
@@ -712,6 +732,7 @@ function StudentSandbox() {
         setMessages(prev => prev.map(msg => 
             msg.id === aiMessageId ? { 
               ...msg, 
+              text: formatMathText(msg.text),
               fullText: rawAiText
             } : msg
         ));
