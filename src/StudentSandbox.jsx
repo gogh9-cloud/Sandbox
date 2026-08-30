@@ -6,6 +6,24 @@ import { GoogleLogin, googleLogout } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
 import './App.css';
 
+const formatMathText = (str) => {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1/$2')
+    .replace(/\\times/g, '×')
+    .replace(/\\div/g, '÷')
+    .replace(/\\cdot/g, '·')
+    .replace(/\\le/g, '≤')
+    .replace(/\\ge/g, '≥')
+    .replace(/\\neq/g, '≠')
+    .replace(/\\pm/g, '±')
+    .replace(/\\\(/g, '')
+    .replace(/\\\)/g, '')
+    .replace(/\\\[/g, '')
+    .replace(/\\\]/g, '')
+    .replace(/\\/g, '');
+};
+
 function StudentSandbox() {
   const navigate = useNavigate();
   const defaultMessages = [];
@@ -389,6 +407,13 @@ function StudentSandbox() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn, userProfile, sessions, currentSessionId]);
 
+  // 패널 안전장치: 두 패널이 모두 닫혀 화면이 검게 뜨는 현상을 방지 (대화창이 항상 1개 이상 열리도록 함)
+  useEffect(() => {
+    if (!isChatOpen && !isPreviewOpen) {
+      setIsChatOpen(true);
+    }
+  }, [isChatOpen, isPreviewOpen]);
+
   const handleNewChat = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -659,24 +684,6 @@ function StudentSandbox() {
           if (aiText.includes('[BANMAL_DETECTED: 2]')) {
             detectedBanmalCount = 2;
           }
-
-          const formatMathText = (str) => {
-            if (!str || typeof str !== 'string') return str;
-            return str
-              .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1/$2')
-              .replace(/\\times/g, '×')
-              .replace(/\\div/g, '÷')
-              .replace(/\\cdot/g, '·')
-              .replace(/\\le/g, '≤')
-              .replace(/\\ge/g, '≥')
-              .replace(/\\neq/g, '≠')
-              .replace(/\\pm/g, '±')
-              .replace(/\\\(/g, '')
-              .replace(/\\\)/g, '')
-              .replace(/\\\[/g, '')
-              .replace(/\\\]/g, '')
-              .replace(/\\/g, '');
-          };
 
           const rawDisplayText = aiText
             .replace(/\[VIOLATION:\s*WARNING\]/g, '')
