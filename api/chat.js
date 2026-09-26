@@ -41,7 +41,7 @@ export default async function handler(req, res) {
  [중요 역할 및 학습 지도 범위]
  1. 학생의 모든 과목(국어, 수학, 사회, 과학, 영어, 코딩 등)과 학습 전반을 친절하게 돕는 인공지능 튜터야.
  2. 코딩 질문뿐만 아니라 교과 개념 설명, 수학 문제 풀이 과정 설명, 글쓰기 및 독해 지도, 역사/사회 개념, 공부 방법 상담 등 학습에 관한 모든 질문에 초등학생 눈높이에 맞춰 친절하고 이해하기 쉽게 답변해줘.
- 3. 학생이 코딩이나 웹/게임 작성을 요청하지 않은 일반 학습 질문을 했을 때는 불필요하게 HTML 코드 블록을 생성하지 마.
+ 3. [코드 출력 최소화 원칙 - 매우 중요] 학생이 코드 작성/수정/재생성을 명시적으로 요청한 경우에만 \`\`\`html 코드 블록을 출력해. 그 외의 모든 응답(개념 설명, 잡담, 기획 역질문, 이미지 속 수학 문제 풀이 등)에서는 어떤 경우에도 코드 블록을 포함하지 마. 코드 블록은 응답 길이를 크게 늘려 서버 처리 한도를 빨리 소모시키므로, 요청받지 않은 코드 생성은 반드시 피해야 해.
 
  [중요 수식 및 분수 표기 규칙 (LaTeX 금지)]
  1. LaTeX 수식 기호(예: \\frac{a}{b}, \\div, \\times, \\( ... \\), \\[ ... \\])를 절대로 사용하지 마. 학생 화면에서 깨진 수식 코드로 표시될 수 있어.
@@ -134,24 +134,44 @@ export default async function handler(req, res) {
       ];
     };
 
-    // 요청이 너무 커서 TPM(분당 토큰) 한도에 걸리면(429) 히스토리를 더 줄여서 재시도.
+    // max_tokens가 클수록 OpenAI가 요청 1건당 예약하는 토큰(=TPM 예산 점유량)이 커져서
+    // 동시 접속 학생 수를 크게 줄인다. 압축된 코드 기준으로 충분한 8000으로 낮춘다.
+    const MAX_OUTPUT_TOKENS = 8000;
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // 429 에러를 두 종류로 구분해서 대응한다.
+    // 1) "Request too large": 이 요청 자체가 혼자서도 한도(TPM)를 넘음 -> 히스토리를 줄여서 재시도
+    // 2) 그 외 rate limit: 같은 시간에 다른 학생들이 몰려 분당 예산이 일시적으로 소진됨
+    //    -> 요청 크기는 그대로 두고, 안내된 대기시간만큼 기다렸다가 같은 요청을 재시도
     const HISTORY_LIMITS = [20, 8, 3];
+    const MAX_ATTEMPTS = 5;
     let stream;
     let lastErr;
-    for (let attempt = 0; attempt < HISTORY_LIMITS.length; attempt++) {
+    let historyIdx = 0;
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {
         stream = await openai.chat.completions.create({
           model: 'gpt-4o',
-          messages: buildOpenAiMessages(HISTORY_LIMITS[attempt]),
+          messages: buildOpenAiMessages(HISTORY_LIMITS[Math.min(historyIdx, HISTORY_LIMITS.length - 1)]),
           stream: true,
-          max_tokens: 16384,
+          max_tokens: MAX_OUTPUT_TOKENS,
         });
         lastErr = null;
         break;
       } catch (err) {
         lastErr = err;
-        const isRateLimit = err?.status === 429 || /rate_limit|tokens per min|Request too large/i.test(err?.message || '');
-        if (!isRateLimit) break;
+        const message = err?.message || String(err);
+        const isRateLimited = err?.status === 429 || /rate_limit|tokens per min/i.test(message);
+        if (!isRateLimited) break;
+
+        if (/request too large/i.test(message)) {
+          historyIdx += 1;
+        } else {
+          const waitMatch = message.match(/try again in ([\d.]+)\s*s/i);
+          const waitSeconds = waitMatch ? Math.min(parseFloat(waitMatch[1]) + 0.5, 15) : Math.min(2 * (attempt + 1), 10);
+          await sleep(waitSeconds * 1000);
+        }
       }
     }
     if (lastErr) throw lastErr;
