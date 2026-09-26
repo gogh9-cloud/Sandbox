@@ -87,21 +87,13 @@ export default async function handler(req, res) {
       systemPrompt += `\n\n[현재 학생 화면(샌드박스 프리뷰)에 적용되어 있는 최신 코드]\n\`\`\`html\n${htmlCode.trim()}\n\`\`\`\n학생이 수정을 요구하거나 코드를 다시 작성해달라고 하면, 반드시 위 코드를 바탕으로 수정을 진행하고 수정본 전체 코드를 \`\`\`html ... \`\`\` 블록으로 작성해줘.`;
     }
 
-    // OpenAI Message formatting helper
-    const formatMessageContent = (msg) => {
-      const textPart = msg.fullText || msg.text || '';
-      if (msg.image && msg.image.data && msg.image.mimeType) {
-        return [
-          { type: 'text', text: textPart },
-          {
-            type: 'image_url',
-            image_url: {
-              url: `data:${msg.image.mimeType};base64,${msg.image.data}`,
-            },
-          },
-        ];
-      }
-      return textPart;
+    // 과거 턴에 들어있던 완성 코드 블록은 htmlCode로 이미 최신본이 전달되므로
+    // 히스토리 전송 시에는 제거해서 분당 토큰(TPM) 사용량을 크게 줄인다.
+    const CODE_BLOCK_REGEX = /```[a-zA-Z]*\s*[\s\S]*?```/g;
+    const CODE_PLACEHOLDER = '[이전에 생성했던 코드는 생략되었어요. 최신 코드는 위 "현재 학생 화면" 코드를 참고하세요.]';
+    const stripCodeBlocks = (text) => {
+      if (typeof text !== 'string' || !text.includes('```')) return text;
+      return text.replace(CODE_BLOCK_REGEX, CODE_PLACEHOLDER).trim();
     };
 
     // Remove the initial AI welcome message (id === 1) if present
@@ -110,20 +102,59 @@ export default async function handler(req, res) {
       filteredMessages = filteredMessages.slice(1);
     }
 
-    const openAiMessages = [
-      { role: 'system', content: systemPrompt },
-      ...filteredMessages.map(msg => ({
-        role: msg.sender === 'user' ? 'user' : 'assistant',
-        content: formatMessageContent(msg),
-      })),
-    ];
+    // OpenAI Message formatting helper
+    const buildOpenAiMessages = (historyLimit) => {
+      const windowed = filteredMessages.slice(-historyLimit);
+      const lastIndex = windowed.length - 1;
+      const formatMessageContent = (msg, isLast) => {
+        let textPart = msg.fullText || msg.text || '';
+        if (msg.sender !== 'user' && !isLast) {
+          textPart = stripCodeBlocks(textPart);
+        }
+        if (msg.image && msg.image.data && msg.image.mimeType) {
+          return [
+            { type: 'text', text: textPart },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:${msg.image.mimeType};base64,${msg.image.data}`,
+              },
+            },
+          ];
+        }
+        return textPart;
+      };
 
-    const stream = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: openAiMessages,
-      stream: true,
-      max_tokens: 16384,
-    });
+      return [
+        { role: 'system', content: systemPrompt },
+        ...windowed.map((msg, idx) => ({
+          role: msg.sender === 'user' ? 'user' : 'assistant',
+          content: formatMessageContent(msg, idx === lastIndex),
+        })),
+      ];
+    };
+
+    // 요청이 너무 커서 TPM(분당 토큰) 한도에 걸리면(429) 히스토리를 더 줄여서 재시도.
+    const HISTORY_LIMITS = [20, 8, 3];
+    let stream;
+    let lastErr;
+    for (let attempt = 0; attempt < HISTORY_LIMITS.length; attempt++) {
+      try {
+        stream = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: buildOpenAiMessages(HISTORY_LIMITS[attempt]),
+          stream: true,
+          max_tokens: 16384,
+        });
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        const isRateLimit = err?.status === 429 || /rate_limit|tokens per min|Request too large/i.test(err?.message || '');
+        if (!isRateLimit) break;
+      }
+    }
+    if (lastErr) throw lastErr;
 
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content || '';
