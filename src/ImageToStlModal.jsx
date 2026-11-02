@@ -151,7 +151,7 @@ export default function ImageToStlModal({ onClose }) {
 
   const processed = useMemo(() => {
     if (!grid) return null;
-    const radius = Math.round(thicken / grid.cell);
+    const radius = thicken / grid.cell;
     const base = luminanceMask(grid.rgba, grid.w, grid.h, threshold, invert);
     const mask = fixCornerTouches(dilateMask(base, grid.w, grid.h, radius), grid.w, grid.h);
     let ink = 0;
@@ -246,7 +246,7 @@ export default function ImageToStlModal({ onClose }) {
                 <input type="checkbox" checked={invert} onChange={(e) => setInvert(e.target.checked)} />
                 밝은 부분을 선으로 쓰기
               </label>
-              <SliderRow label="선 굵게" value={thicken} min={0} max={5} step={0.2} unit=" mm" onChange={setThicken} />
+              <SliderRow label="선 굵게" value={thicken} min={0} max={5} step={0.02} unit=" mm" onChange={setThicken} />
               <p className="stl-hint">선 양쪽에 이만큼씩 더해져요.</p>
               <SliderRow label="그림 크기(긴 쪽)" value={sizeMm} min={3} max={100} step={0.5} unit=" mm" onChange={setSizeMm} />
               <SliderRow label="선 높이" value={lineHeight} min={1} max={10} step={0.5} unit=" mm" onChange={setLineHeight} />
