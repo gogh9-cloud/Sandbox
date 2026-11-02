@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, Code, Play, LogOut, Trash2, Download, Plus, MessageSquare, PanelLeftClose, PanelLeft, PanelRightClose, PanelRight, Edit2, LayoutDashboard, Copy, Check, Image as ImageIcon, X } from 'lucide-react';
+import { Send, Sparkles, Code, Play, LogOut, Trash2, Download, Plus, MessageSquare, PanelLeftClose, PanelLeft, PanelRightClose, PanelRight, Edit2, LayoutDashboard, Copy, Check, Image as ImageIcon, X, Box } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from './lib/supabase';
+import ImageToStlModal from './ImageToStlModal';
 import { GoogleLogin, googleLogout } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
 import './App.css';
@@ -55,6 +56,7 @@ function StudentSandbox() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isStlOpen, setIsStlOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [violationCount, setViolationCount] = useState(0);
   const [banmalCount, setBanmalCount] = useState(0);
@@ -925,6 +927,13 @@ function StudentSandbox() {
         
         {userProfile && (
           <div className="header-right">
+            <button
+              className="dashboard-button"
+              onClick={() => setIsStlOpen(true)}
+              title="그림을 3D 프린터용 STL 파일로 만들기"
+            >
+              <Box size={16} /> STL 만들기
+            </button>
             {userProfile.email.includes('gogh9') && (
               <button 
                 className="dashboard-button" 
@@ -944,6 +953,8 @@ function StudentSandbox() {
           </div>
         )}
       </header>
+
+      {isStlOpen && <ImageToStlModal onClose={() => setIsStlOpen(false)} />}
 
       <main className="main-content">
         {/* Sidebar Panel Overlay for mobile */}
