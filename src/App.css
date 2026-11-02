@@ -1036,8 +1036,20 @@ iframe {
 .stl-dims { text-align: center; color: var(--text-muted); font-size: 0.85rem; margin: 8px 0; }
 .stl-error { color: #fca5a5; font-size: 0.85rem; text-align: center; margin: 8px 0; }
 .stl-controls { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 16px; }
-.stl-row { display: grid; grid-template-columns: 110px 1fr 70px; align-items: center; gap: 10px; font-size: 0.9rem; }
-.stl-row-value { text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.stl-row { display: grid; grid-template-columns: 110px 1fr 104px; align-items: center; gap: 10px; font-size: 0.9rem; }
+.stl-row-number { display: flex; align-items: center; justify-content: flex-end; gap: 4px; color: var(--text-muted); white-space: nowrap; }
+.stl-row-number input {
+  width: 58px;
+  background: #12141f;
+  color: var(--text-main);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 3px 4px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.stl-note { color: #fcd34d; font-size: 0.85rem; text-align: center; margin: 8px 0; }
+.stl-hint { color: var(--text-muted); font-size: 0.78rem; margin: -6px 0 0 120px; }
 .stl-row select { grid-column: 2 / 4; background: #12141f; color: var(--text-main); border: 1px solid var(--panel-border); border-radius: 8px; padding: 6px; }
 .stl-check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
 .stl-download {
@@ -1058,5 +1070,6 @@ iframe {
 .stl-download:disabled { opacity: 0.4; cursor: not-allowed; }
 @media (max-width: 600px) {
   .stl-modal { padding: 24px 16px; }
-  .stl-row { grid-template-columns: 90px 1fr 60px; }
+  .stl-row { grid-template-columns: 82px 1fr 98px; gap: 6px; }
+  .stl-hint { margin-left: 88px; }
 }
