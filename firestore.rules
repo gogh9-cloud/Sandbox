@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    // 교사 권한은 코드에 이메일을 넣지 않고 Firebase custom claim(teacher: true)으로 부여한다.
+    // functions/scripts/set-teacher-claim.mjs 로 한 번만 지정하면 된다.
+    function isTeacher() {
+      return isSignedIn() && request.auth.token.teacher == true;
+    }
+
+    function isOwner(data) {
+      return isSignedIn() && data.student_email == request.auth.token.email;
+    }
+
+    function validSession() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['session_id', 'student_email', 'student_name', 'title', 'messages', 'html_code', 'updated_at'])
+        && d.keys().hasAll(['session_id', 'student_email', 'student_name', 'title', 'messages', 'html_code', 'updated_at'])
+        && d.session_id is string && d.session_id.size() < 64
+        && d.student_email is string
+        && d.student_name is string && d.student_name.size() < 100
+        && d.title is string && d.title.size() < 200
+        && d.messages is list
+        && d.html_code is string && d.html_code.size() < 400000
+        && d.updated_at is string;
+    }
+
+    match /student_sessions/{docId} {
+      // 학생은 자기 세션만, 교사는 전체를 읽는다.
+      allow read: if isTeacher() || isOwner(resource.data);
+
+      allow create: if isOwner(request.resource.data)
+                    && validSession()
+                    && docId == request.resource.data.student_email + '__' + request.resource.data.session_id;
+
+      // 교사는 정지 해제 등으로 messages를 고칠 수 있다.
+      allow update: if isTeacher()
+                    || (isOwner(resource.data)
+                        && isOwner(request.resource.data)
+                        && validSession()
+                        && docId == request.resource.data.student_email + '__' + request.resource.data.session_id);
+
+      // 기존 동작과 같이 서버 기록 삭제는 교사만 할 수 있다.
+      allow delete: if isTeacher();
+    }
+  }
+}

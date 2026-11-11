@@ -1,30 +1,27 @@
-/* global process */
-// Trigger Vercel Auto Deployment - OpenAI API
 import OpenAI from "openai";
 
-export const config = {
-  maxDuration: 300,
-};
+// Express(Cloud Functions)와 순수 Node 응답 객체(Vite 개발 서버) 양쪽에서 동작하도록 직접 응답한다.
+function sendJson(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(body));
+}
 
-export default async function handler(req, res) {
+export async function handleChat(req, res, apiKey) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
+    return sendJson(res, 405, { error: 'Method Not Allowed' });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'OPENAI_API_KEY is not set in environment variables.' });
+    return sendJson(res, 500, { error: 'OPENAI_API_KEY is not set.' });
   }
 
   const messages = req.body?.messages;
   const htmlCode = req.body?.htmlCode;
-  const violationCount = req.body?.violationCount || 0;
-  const banmalCount = req.body?.banmalCount || 0;
   if (!messages || !Array.isArray(messages)) {
-    return res.status(400).json({ error: 'Invalid request body' });
+    return sendJson(res, 400, { error: 'Invalid request body' });
   }
 
-  // 스트리밍 헤더를 즉시 전송 — 이 시점에서 Vercel Gateway 타임아웃(TTFB 10초) 해결
+  // 스트리밍 헤더를 즉시 전송해서 첫 바이트 대기로 연결이 끊기는 것을 막는다.
   res.writeHead(200, {
     'Content-Type': 'text/plain; charset=utf-8',
     'Transfer-Encoding': 'chunked',

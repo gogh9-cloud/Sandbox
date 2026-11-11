@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { supabase } from './lib/supabase';
+import { fetchAllSessions, updateSessionMessages, removeSession } from './lib/sessionsDb';
+import { useAuth } from './lib/auth';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, ArrowLeft, Users, MonitorPlay, MessageSquare, Clock, Trash2 } from 'lucide-react';
 import './App.css';
@@ -12,28 +13,26 @@ function TeacherDashboard() {
   const [selectedSession, setSelectedSession] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const navigate = useNavigate();
+  const { isTeacher, loading: authLoading } = useAuth();
 
   useEffect(() => {
-    fetchSessions();
-  }, []);
+    if (isTeacher) {
+      fetchSessions();
+    }
+  }, [isTeacher]);
 
   async function fetchSessions() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('student_sessions')
-      .select('*')
-      .order('updated_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching sessions:', error);
-      setSessions([]);
-    } else {
-      const fetched = data || [];
+    try {
+      const fetched = await fetchAllSessions();
       setSessions(fetched);
-      
+
       // Clean up selectedIds that are no longer in fetched list
       const fetchedIds = new Set(fetched.map(s => s.id));
       setSelectedIds(prev => prev.filter(id => fetchedIds.has(id)));
+    } catch (error) {
+      console.error('Error fetching sessions:', error);
+      setSessions([]);
     }
     setLoading(false);
   }
@@ -71,35 +70,22 @@ function TeacherDashboard() {
     ];
 
     try {
-      const { error } = await supabase
-        .from('student_sessions')
-        .update({
-          messages: updatedMessages,
-          updated_at: new Date().toISOString()
-        })
-        .eq('session_id', session.session_id)
-        .eq('student_email', session.student_email);
+      await updateSessionMessages(session.id, updatedMessages);
+      alert('정지가 성공적으로 해제되었습니다.');
 
-      if (error) {
-        console.error('Unban error:', error);
-        alert(`정지 해제에 실패했습니다. (에러: ${error.message})`);
-      } else {
-        alert('정지가 성공적으로 해제되었습니다.');
-        
-        // Update selectedSession state immediately to reflect in UI
-        const updatedSessionObj = {
-          ...session,
-          messages: updatedMessages,
-          updated_at: new Date().toISOString()
-        };
-        setSelectedSession(updatedSessionObj);
-        
-        // Refresh session list
-        fetchSessions();
-      }
+      // Update selectedSession state immediately to reflect in UI
+      const updatedSessionObj = {
+        ...session,
+        messages: updatedMessages,
+        updated_at: new Date().toISOString()
+      };
+      setSelectedSession(updatedSessionObj);
+
+      // Refresh session list
+      fetchSessions();
     } catch (e) {
       console.error('Unban exception:', e);
-      alert('정지 해제 중 오류가 발생했습니다.');
+      alert(`정지 해제에 실패했습니다. (에러: ${e.message})`);
     }
   };
 
@@ -108,27 +94,17 @@ function TeacherDashboard() {
     if (!window.confirm(`${session.student_name} 학생의 '${session.title || '새 채팅'}' 세션을 삭제하시겠습니까?\n삭제 시 학생의 PC에서도 해당 세션이 삭제됩니다.`)) return;
 
     try {
-      const { error } = await supabase
-        .from('student_sessions')
-        .delete()
-        .eq('session_id', session.session_id)
-        .eq('student_email', session.student_email);
-
-      if (error) {
-        console.error('Delete session error:', error);
-        alert(`세션 삭제에 실패했습니다. (에러: ${error.message})`);
-      } else {
-        alert('세션이 성공적으로 삭제되었습니다.');
-        if (selectedSession && selectedSession.session_id === session.session_id) {
-          setSelectedSession(null);
-        }
-        // Remove from selectedIds state
-        setSelectedIds(prev => prev.filter(id => id !== session.id));
-        fetchSessions();
+      await removeSession(session.id);
+      alert('세션이 성공적으로 삭제되었습니다.');
+      if (selectedSession && selectedSession.id === session.id) {
+        setSelectedSession(null);
       }
+      // Remove from selectedIds state
+      setSelectedIds(prev => prev.filter(id => id !== session.id));
+      fetchSessions();
     } catch (e) {
       console.error('Delete session exception:', e);
-      alert('세션 삭제 중 오류가 발생했습니다.');
+      alert(`세션 삭제에 실패했습니다. (에러: ${e.message})`);
     }
   };
 
@@ -154,22 +130,13 @@ function TeacherDashboard() {
     if (!window.confirm(`선택한 ${selectedIds.length}개의 세션을 삭제하시겠습니까?\n삭제 시 해당 학생들의 PC에서도 세션이 삭제됩니다.`)) return;
 
     try {
-      const sessionsToDelete = sessions.filter(s => selectedIds.includes(s.id));
-      
-      const promises = sessionsToDelete.map(s => 
-        supabase
-          .from('student_sessions')
-          .delete()
-          .eq('session_id', s.session_id)
-          .eq('student_email', s.student_email)
-      );
-
-      const results = await Promise.all(promises);
-      const errors = results.filter(r => r.error);
+      const results = await Promise.allSettled(selectedIds.map(id => removeSession(id)));
+      const errors = results.filter(r => r.status === 'rejected');
 
       if (errors.length > 0) {
         console.error('Some bulk deletes failed:', errors);
         alert(`${errors.length}개의 세션 삭제에 실패했습니다.`);
+        fetchSessions();
       } else {
         alert('선택한 세션이 성공적으로 삭제되었습니다.');
         if (selectedSession && selectedIds.includes(selectedSession.id)) {
@@ -183,6 +150,29 @@ function TeacherDashboard() {
       alert('세션 삭제 중 오류가 발생했습니다.');
     }
   };
+
+  if (authLoading) {
+    return (
+      <div className="login-container">
+        <div className="login-card glass">
+          <Sparkles size={48} color="#c084fc" className="animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!isTeacher) {
+    return (
+      <div className="login-container">
+        <div className="login-card glass">
+          <Sparkles size={48} color="#c084fc" style={{ marginBottom: '20px' }} />
+          <h2>선생님 전용 화면이에요</h2>
+          <p className="login-subtitle">교사 권한이 있는 계정으로 로그인해야 볼 수 있어요.</p>
+          <button className="google-login-button" onClick={handleBack}>학생 화면으로 돌아가기</button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

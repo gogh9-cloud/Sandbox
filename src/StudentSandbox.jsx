@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, Code, Play, LogOut, Trash2, Download, Plus, MessageSquare, PanelLeftClose, PanelLeft, PanelRightClose, PanelRight, Edit2, LayoutDashboard, Copy, Check, Image as ImageIcon, X, Box } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from './lib/supabase';
 import ImageToStlModal from './ImageToStlModal';
-import { GoogleLogin, googleLogout } from '@react-oauth/google';
-import { jwtDecode } from 'jwt-decode';
+import { auth, CHAT_URL, isFirebaseConfigured } from './lib/firebase';
+import { useAuth, signInWithGoogle, signOutUser } from './lib/auth';
+import { upsertSession, subscribeOwnSessionIds } from './lib/sessionsDb';
 import './App.css';
 
 const formatMathText = (str) => {
@@ -39,20 +39,10 @@ function StudentSandbox() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('튜터가 생각 중이에요... 💭');
   const [activeTab, setActiveTab] = useState('preview');
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    return localStorage.getItem('user_profile') ? true : false;
-  });
-  const [userProfile, setUserProfile] = useState(() => {
-    const saved = localStorage.getItem('user_profile');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  });
+  const { user, profile: userProfile, isTeacher, loading: authLoading } = useAuth();
+  const isLoggedIn = Boolean(user);
+  const [loginError, setLoginError] = useState('');
+  const [remoteSessionIds, setRemoteSessionIds] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -299,28 +289,14 @@ function StudentSandbox() {
           // Save to local storage
           localStorage.setItem(`sandbox_sessions_${userProfile.email}`, JSON.stringify(updated));
           
-          // Save to Supabase (only if the current session was successfully updated)
+          // Save to Firestore (only if the current session was successfully updated)
           if (updatedSession) {
-             supabase.from('student_sessions').upsert({
-               session_id: updatedSession.id,
-               student_email: userProfile.email,
-               student_name: userProfile.name,
-               title: updatedSession.title,
-               messages: [
-                 ...updatedSession.messages,
-                 {
-                   id: 'metadata',
-                   sender: 'metadata',
-                   isBanned: isBanned,
-                   violationCount: violationCount,
-                   banmalCount: banmalCount
-                 }
-               ],
-               html_code: updatedSession.htmlCode,
-               updated_at: new Date().toISOString()
-             }, { onConflict: 'student_email, session_id' }).then(({ error }) => {
-                if (error) console.error("Supabase upsert error:", error);
-             });
+             upsertSession({
+               email: userProfile.email,
+               name: userProfile.name,
+               session: updatedSession,
+               meta: { isBanned, violationCount, banmalCount }
+             }).catch((error) => console.error("Firestore upsert error:", error));
           }
           
           return updated;
@@ -332,82 +308,72 @@ function StudentSandbox() {
   // 3. 정지 상태 폴링 제거 (정지 기능이 비활성화됨)
   // 기존 check unban polling 이펙트는 제거되었습니다.
 
-  // 4. 교사가 대시보드에서 세션을 삭제했는지 주기적으로 감지하여 동기화
+  // 4a. 서버에 있는 내 세션 목록을 실시간으로 구독한다 (교사가 삭제하면 바로 반영)
   useEffect(() => {
-    let intervalId;
-    if (isLoggedIn && userProfile?.email && sessions.length > 0) {
-      intervalId = setInterval(async () => {
-        try {
-          const { data, error } = await supabase
-            .from('student_sessions')
-            .select('session_id')
-            .eq('student_email', userProfile.email);
+    if (!isLoggedIn || !userProfile?.email) return undefined;
+    return subscribeOwnSessionIds(
+      userProfile.email,
+      setRemoteSessionIds,
+      (error) => console.error("Error watching sessions:", error)
+    );
+  }, [isLoggedIn, userProfile]);
 
-          if (error) {
-            console.error("Error checking active sessions:", error);
-            return;
-          }
+  // 4b. 서버에서 한 번이라도 확인된 세션이 서버에서 사라졌다면(=교사가 삭제) 이 PC에서도 지운다.
+  // 서버에 올라간 적 없는 세션(쓰기 실패, 이전 시스템에서 옮겨 오지 않은 세션)은 절대 지우지 않는다.
+  useEffect(() => {
+    if (!isLoggedIn || !userProfile?.email || !remoteSessionIds) return;
 
-          if (data && data.length > 0) {
-            const activeDbIds = new Set(data.map(row => row.session_id));
-            let hasChanges = false;
-            
-            const updatedSessions = sessions.filter(session => {
-              const dbExists = activeDbIds.has(session.id);
-              const isRecent = Date.now() - Number(session.id) < 15000;
-              
-              if (!dbExists && !isRecent) {
-                hasChanges = true;
-                return false; // Remove this session as it was deleted by the teacher
-              }
-              return true;
-            });
-
-            if (hasChanges) {
-              if (updatedSessions.length === 0) {
-                // If all sessions are deleted, create a new one
-                const newSessionId = Date.now().toString();
-                const newSession = {
-                  id: newSessionId,
-                  title: '새 채팅',
-                  messages: defaultMessages,
-                  htmlCode: defaultHtml,
-                  violationCount: 0,
-                  banmalCount: 0,
-                  isBanned: false
-                };
-                setSessions([newSession]);
-                setCurrentSessionId(newSessionId);
-                setMessages(defaultMessages);
-                setHtmlCode(defaultHtml);
-                setViolationCount(0);
-                setBanmalCount(0);
-                setIsBanned(false);
-              } else {
-                setSessions(updatedSessions);
-                // If current session was deleted, switch to the first remaining one
-                if (!updatedSessions.some(s => s.id === currentSessionId)) {
-                  const nextSession = updatedSessions[0];
-                  setCurrentSessionId(nextSession.id);
-                  setMessages(nextSession.messages);
-                  setHtmlCode(nextSession.htmlCode || defaultHtml);
-                  setViolationCount(nextSession.violationCount || 0);
-                  setBanmalCount(nextSession.banmalCount || 0);
-                  setIsBanned(nextSession.isBanned || false);
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.error("Error in sync deleted sessions:", e);
-        }
-      }, 5000);
+    const confirmedKey = `synced_session_ids_${userProfile.email}`;
+    let confirmed;
+    try {
+      confirmed = new Set(JSON.parse(localStorage.getItem(confirmedKey) || '[]'));
+    } catch {
+      confirmed = new Set();
     }
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
+    remoteSessionIds.forEach(id => confirmed.add(id));
+
+    const deletedIds = new Set(
+      sessions.filter(s => confirmed.has(s.id) && !remoteSessionIds.has(s.id)).map(s => s.id)
+    );
+    deletedIds.forEach(id => confirmed.delete(id));
+    localStorage.setItem(confirmedKey, JSON.stringify([...confirmed]));
+
+    if (deletedIds.size === 0) return;
+
+    const updatedSessions = sessions.filter(s => !deletedIds.has(s.id));
+    if (updatedSessions.length === 0) {
+      const newSessionId = Date.now().toString();
+      const newSession = {
+        id: newSessionId,
+        title: '새 채팅',
+        messages: defaultMessages,
+        htmlCode: defaultHtml,
+        violationCount: 0,
+        banmalCount: 0,
+        isBanned: false
+      };
+      setSessions([newSession]);
+      setCurrentSessionId(newSessionId);
+      setMessages(defaultMessages);
+      setHtmlCode(defaultHtml);
+      setViolationCount(0);
+      setBanmalCount(0);
+      setIsBanned(false);
+    } else {
+      setSessions(updatedSessions);
+      // If current session was deleted, switch to the first remaining one
+      if (!updatedSessions.some(s => s.id === currentSessionId)) {
+        const nextSession = updatedSessions[0];
+        setCurrentSessionId(nextSession.id);
+        setMessages(nextSession.messages);
+        setHtmlCode(nextSession.htmlCode || defaultHtml);
+        setViolationCount(nextSession.violationCount || 0);
+        setBanmalCount(nextSession.banmalCount || 0);
+        setIsBanned(nextSession.isBanned || false);
+      }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoggedIn, userProfile, sessions, currentSessionId]);
+  }, [remoteSessionIds, sessions, currentSessionId, isLoggedIn, userProfile]);
 
   // 패널 안전장치: 두 패널이 모두 닫혀 화면이 검게 뜨는 현상을 방지 (대화창이 항상 1개 이상 열리도록 함)
   useEffect(() => {
@@ -518,27 +484,12 @@ function StudentSandbox() {
           try {
             localStorage.setItem(`sandbox_sessions_${userProfile.email}`, JSON.stringify(updated));
             if (updatedSession) {
-              const sessionMsgs = Array.isArray(updatedSession.messages) ? updatedSession.messages : [];
-              supabase.from('student_sessions').upsert({
-                session_id: updatedSession.id,
-                student_email: userProfile.email,
-                student_name: userProfile.name,
-                title: updatedSession.title,
-                messages: [
-                  ...sessionMsgs,
-                  {
-                    id: 'metadata',
-                    sender: 'metadata',
-                    isBanned: isBanned,
-                    violationCount: violationCount,
-                    banmalCount: banmalCount
-                  }
-                ],
-                html_code: updatedSession.htmlCode || '',
-                updated_at: new Date().toISOString()
-              }, { onConflict: 'student_email, session_id' }).then(({ error }) => {
-                if (error) console.error("Supabase upsert error:", error);
-              }).catch(console.error);
+              upsertSession({
+                email: userProfile.email,
+                name: userProfile.name,
+                session: updatedSession,
+                meta: { isBanned, violationCount, banmalCount }
+              }).catch((error) => console.error("Firestore upsert error:", error));
             }
           } catch (err) {
             console.error("Rename save error:", err);
@@ -630,10 +581,15 @@ function StudentSandbox() {
 
     let aiMessageId = null;
     try {
-      const response = await fetch('/api/chat', {
+      const idToken = await auth?.currentUser?.getIdToken();
+      if (!idToken) {
+        throw new Error('로그인 정보를 확인할 수 없어요. 다시 로그인해 주세요.');
+      }
+      const response = await fetch(CHAT_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
         },
         body: JSON.stringify({ 
           messages: newMessages,
@@ -778,28 +734,48 @@ function StudentSandbox() {
     }
   };
 
-  const handleLoginSuccess = (credentialResponse) => {
+  const handleLogin = async () => {
+    setLoginError('');
     try {
-      const decoded = jwtDecode(credentialResponse.credential);
-      const profile = {
-        name: decoded.name,
-        picture: decoded.picture,
-        email: decoded.email
-      };
-      localStorage.setItem('user_profile', JSON.stringify(profile));
-      setUserProfile(profile);
-      setIsLoggedIn(true);
+      await signInWithGoogle();
     } catch (error) {
-      console.error("Login decoding failed:", error);
+      console.error("Login failed:", error);
+      setLoginError('로그인에 실패했어요. 잠시 후 다시 시도해 주세요.');
     }
   };
 
-  const handleLogout = () => {
-    googleLogout();
-    localStorage.removeItem('user_profile');
-    setIsLoggedIn(false);
-    setUserProfile(null);
+  const handleLogout = async () => {
+    try {
+      await signOutUser();
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
   };
+
+  if (!isFirebaseConfigured) {
+    return (
+      <div className="login-container">
+        <div className="login-card glass">
+          <Sparkles size={48} color="#c084fc" style={{ marginBottom: '20px' }} />
+          <h1 className="login-title">우리반 AI</h1>
+          <p className="login-subtitle">
+            Firebase 설정이 아직 없어요.<br />
+            .env 의 VITE_FIREBASE_* 값을 채워 주세요.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authLoading) {
+    return (
+      <div className="login-container">
+        <div className="login-card glass">
+          <Sparkles size={48} color="#c084fc" className="animate-spin" />
+        </div>
+      </div>
+    );
+  }
 
   if (!isLoggedIn) {
     return (
@@ -812,11 +788,11 @@ function StudentSandbox() {
             바이브 코딩을 시작해 보세요!
           </p>
           <div className="login-button-wrapper">
-            <GoogleLogin
-              onSuccess={handleLoginSuccess}
-              onError={() => console.error('Login Failed')}
-            />
+            <button className="google-login-button" onClick={handleLogin}>
+              Google 계정으로 로그인
+            </button>
           </div>
+          {loginError && <p className="stl-error">{loginError}</p>}
         </div>
       </div>
     );
@@ -934,7 +910,7 @@ function StudentSandbox() {
             >
               <Box size={16} /> STL 만들기
             </button>
-            {userProfile.email.includes('gogh9') && (
+            {isTeacher && (
               <button 
                 className="dashboard-button" 
                 onClick={() => navigate('/dashboard')}

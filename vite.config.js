@@ -1,9 +1,10 @@
 /* global process */
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
-import handler from './api/chat.js'
+import { handleChat } from './functions/chatHandler.js'
 
-// 로컬 개발 서버에서 /api/chat이 .env의 OPENAI_API_KEY를 읽을 수 있게 한다 (배포 환경은 Vercel 환경변수 사용)
+// 로컬 개발 서버에서만 쓰는 챗 API. 배포 환경은 Cloud Function(functions/index.js)이 같은 핸들러를 사용한다.
+// 키는 .env 의 OPENAI_API_KEY 에서 읽는다.
 const localEnv = loadEnv('development', process.cwd(), '')
 process.env.OPENAI_API_KEY ??= localEnv.OPENAI_API_KEY
 
@@ -23,11 +24,11 @@ export default defineConfig({
             req.on('end', async () => {
               try {
                 req.body = JSON.parse(body || '{}');
-              } catch (e) {
+              } catch {
                 req.body = {};
               }
               try {
-                await handler(req, res);
+                await handleChat(req, res, process.env.OPENAI_API_KEY);
               } catch (err) {
                 console.error("API handler error:", err);
                 if (!res.headersSent) {

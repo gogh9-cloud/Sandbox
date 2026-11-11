@@ -29,3 +29,5 @@ dist-ssr
 
 # Claude Code local preview config
 .claude/
+!.env.example
+.firebase/

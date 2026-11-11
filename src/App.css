@@ -1073,3 +1073,23 @@ iframe {
   .stl-row { grid-template-columns: 82px 1fr 98px; gap: 6px; }
   .stl-hint { margin-left: 88px; }
 }
+
+/* Firebase Google login button */
+.google-login-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 24px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #ffffff;
+  color: #1f2937;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.google-login-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
