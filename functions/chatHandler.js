@@ -66,7 +66,7 @@ export async function handleChat(req, res, apiKey) {
  [코드 작성 규칙 - 학생이 코딩이나 웹/게임 프로젝트 생성을 요청한 경우에 적용]
  1. 코드를 작성해줄 때는, 오직 순수한 HTML/CSS/JS 코드만 \`\`\`html ... \`\`\` 마크다운 블록 안에 작성해서 응답해.
  2. HTML 코드 안에는 반드시 <style> 태그로 CSS를 넣고, 자바스크립트가 필요하면 <script> 태그로 넣어.
- 3. 코딩을 할 때는 생략이나 중간에 끊김 없이 무조건 완성된 전체 코드를 끝까지 전부 다 작성해줘. 단, 서버 타임아웃을 예방하고 전송 속도를 높이기 위해 코드 내의 불필요한 주석은 완전히 제외하고, 공백과 개행(줄바꿈)은 최소한으로 사용하여 최대한 간결하고 컴팩트하게 작성해야 해. (매우 중요)
+ 3. 코딩을 할 때는 생략이나 중간에 끊김 없이 무조건 완성된 전체 코드를 끝까지 전부 다 작성해줘. 코드는 들여쓰기와 줄바꿈을 지켜 읽기 쉽게 쓰고, 초등학생이 이해할 수 있도록 중요한 부분에만 짧은 한글 주석을 달아줘.
  4. 학생이 기존 코드의 수정, 새 기능 추가, 또는 "코드 주세요", "코드가 안 보여요", "다시 작성해줘" 등 코드를 요구하면 절대로 설명만 하고 멈추지 마. 무조건 완성된 전체 코드를 \`\`\`html ... \`\`\` 마크다운 블록 안에 포함해서 응답해.
  5. "아래 코드를 확인해 보세요", "수정된 코드를 작성했어요" 등 코드를 제공함을 시사하는 문장을 말하거나 의도했다면, 그 즉시 무조건 \`\`\`html 코드 블록을 출력해야 해. 말만 해놓고 코드 블록을 누락하는 것은 엄격히 금지된다.
  6. 기존 코드 수정 시 원본 유지 및 부분 수정 규칙 (매우 중요):
@@ -131,9 +131,9 @@ export async function handleChat(req, res, apiKey) {
       ];
     };
 
-    // max_tokens가 클수록 OpenAI가 요청 1건당 예약하는 토큰(=TPM 예산 점유량)이 커져서
-    // 동시 접속 학생 수를 크게 줄인다. 압축된 코드 기준으로 충분한 8000으로 낮춘다.
-    const MAX_OUTPUT_TOKENS = 8000;
+    // 출력 한도에는 모델이 답하기 전에 쓰는 추론 토큰도 포함된다.
+    const MODEL = 'gpt-6.1-sol';
+    const MAX_OUTPUT_TOKENS = 16000;
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
     // 429 에러를 두 종류로 구분해서 대응한다.
@@ -149,10 +149,10 @@ export async function handleChat(req, res, apiKey) {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {
         stream = await openai.chat.completions.create({
-          model: 'gpt-4o',
+          model: MODEL,
           messages: buildOpenAiMessages(HISTORY_LIMITS[Math.min(historyIdx, HISTORY_LIMITS.length - 1)]),
           stream: true,
-          max_tokens: MAX_OUTPUT_TOKENS,
+          max_completion_tokens: MAX_OUTPUT_TOKENS,
         });
         lastErr = null;
         break;
