@@ -62,6 +62,7 @@ function StudentSandbox() {
   const loadingTimer2Ref = useRef(null);
   const abortControllerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const chatInputRef = useRef(null);
 
   const processImageFile = (file) => {
     if (!file || !file.type.startsWith('image/')) return;
@@ -374,6 +375,15 @@ function StudentSandbox() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remoteSessionIds, sessions, currentSessionId, isLoggedIn, userProfile]);
+
+  // 답변이 끝나거나 채팅방이 바뀌면 입력창에 커서를 다시 둔다.
+  // 터치 기기에서는 화면 키보드가 프리뷰를 가리지 않도록 자동으로 포커스하지 않는다.
+  useEffect(() => {
+    if (!isLoggedIn || !hasAgreedToGuidelines || !isChatOpen) return;
+    if (isLoading || editingSessionId || isStlOpen) return;
+    if (window.matchMedia?.('(pointer: coarse)').matches) return;
+    chatInputRef.current?.focus();
+  }, [isLoggedIn, hasAgreedToGuidelines, isChatOpen, isLoading, editingSessionId, isStlOpen, currentSessionId, selectedImage]);
 
   // 패널 안전장치: 두 패널이 모두 닫혀 화면이 검게 뜨는 현상을 방지 (대화창이 항상 1개 이상 열리도록 함)
   useEffect(() => {
@@ -1052,13 +1062,13 @@ function StudentSandbox() {
               </button>
               <input
                 type="text"
+                ref={chatInputRef}
                 className="chat-input"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSend()}
                 onPaste={handlePaste}
                 placeholder=""
-                disabled={isLoading}
               />
               <button 
                 className="send-button" 
